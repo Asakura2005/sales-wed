@@ -17,240 +17,242 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 // Init DB
-initDatabase();
+initDatabase().then(() => console.log('Database initialized')).catch(e => console.error('DB Init Error', e));
+
+const apiRouter = express.Router();
 
 // --- Auth ---
-app.post('/api/auth/login', (req, res) => {
+apiRouter.post('/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const user = userQueries.login(username, password);
+    const user = await userQueries.login(username, password);
     if (user) {
-      activityQueries.log(user.id, 'login', 'Đăng nhập thành công');
+      await activityQueries.log(user.id, 'login', 'Đăng nhập thành công');
     }
     res.json({ success: !!user, user: user, error: user ? null : 'Sai tên đăng nhập hoặc mật khẩu' });
   } catch (err) { res.json({ success: false, error: err.message }); }
 });
 
 // --- Users ---
-app.get('/api/users', (req, res) => {
-  try { res.json({ success: true, data: userQueries.getAll() }); }
+apiRouter.get('/users', async (req, res) => {
+  try { res.json({ success: true, data: await userQueries.getAll() }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.post('/api/users', (req, res) => {
-  try { const id = userQueries.create(req.body); res.json({ success: true, data: { id } }); }
+apiRouter.post('/users', async (req, res) => {
+  try { const id = await userQueries.create(req.body); res.json({ success: true, data: { id } }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.put('/api/users/:id', (req, res) => {
-  try { userQueries.update(req.params.id, req.body); res.json({ success: true }); }
+apiRouter.put('/users/:id', async (req, res) => {
+  try { await userQueries.update(req.params.id, req.body); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.delete('/api/users/:id', (req, res) => {
-  try { userQueries.delete(req.params.id); res.json({ success: true }); }
+apiRouter.delete('/users/:id', async (req, res) => {
+  try { await userQueries.delete(req.params.id); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
 
 // --- Categories ---
-app.get('/api/categories', (req, res) => {
-  try { res.json({ success: true, data: categoryQueries.getAll() }); }
+apiRouter.get('/categories', async (req, res) => {
+  try { res.json({ success: true, data: await categoryQueries.getAll() }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.post('/api/categories', (req, res) => {
-  try { const id = categoryQueries.create(req.body); res.json({ success: true, data: { id } }); }
+apiRouter.post('/categories', async (req, res) => {
+  try { const id = await categoryQueries.create(req.body); res.json({ success: true, data: { id } }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.put('/api/categories/:id', (req, res) => {
-  try { categoryQueries.update(req.params.id, req.body); res.json({ success: true }); }
+apiRouter.put('/categories/:id', async (req, res) => {
+  try { await categoryQueries.update(req.params.id, req.body); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.delete('/api/categories/:id', (req, res) => {
-  try { categoryQueries.delete(req.params.id); res.json({ success: true }); }
+apiRouter.delete('/categories/:id', async (req, res) => {
+  try { await categoryQueries.delete(req.params.id); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
 
 // --- Products ---
-app.get('/api/products', (req, res) => {
-  try { res.json({ success: true, data: productQueries.getAll(req.query.search, req.query.categoryId) }); }
+apiRouter.get('/products', async (req, res) => {
+  try { res.json({ success: true, data: await productQueries.getAll(req.query.search, req.query.categoryId) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/products/:id', (req, res) => {
-  try { res.json({ success: true, data: productQueries.getById(req.params.id) }); }
+apiRouter.get('/products/:id', async (req, res) => {
+  try { res.json({ success: true, data: await productQueries.getById(req.params.id) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.post('/api/products', (req, res) => {
-  try { const id = productQueries.create(req.body); res.json({ success: true, data: { id } }); }
+apiRouter.post('/products', async (req, res) => {
+  try { const id = await productQueries.create(req.body); res.json({ success: true, data: { id } }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.put('/api/products/:id', (req, res) => {
-  try { productQueries.update(req.params.id, req.body); res.json({ success: true }); }
+apiRouter.put('/products/:id', async (req, res) => {
+  try { await productQueries.update(req.params.id, req.body); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.delete('/api/products/:id', (req, res) => {
-  try { productQueries.delete(req.params.id); res.json({ success: true }); }
+apiRouter.delete('/products/:id', async (req, res) => {
+  try { await productQueries.delete(req.params.id); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
 
 // Sizes
-app.get('/api/products/:id/sizes', (req, res) => {
-  try { res.json({ success: true, data: sizeQueries.getByProduct(req.params.id) }); }
+apiRouter.get('/products/:id/sizes', async (req, res) => {
+  try { res.json({ success: true, data: await sizeQueries.getByProduct(req.params.id) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.put('/api/products/:id/sizes', (req, res) => {
-  try { sizeQueries.set(req.params.id, req.body.sizes); res.json({ success: true }); }
+apiRouter.put('/products/:id/sizes', async (req, res) => {
+  try { await sizeQueries.set(req.params.id, req.body.sizes); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
 
 // --- Combos ---
-app.get('/api/combos', (req, res) => {
-  try { res.json({ success: true, data: comboQueries.getAll(req.query.activeOnly === 'true') }); }
+apiRouter.get('/combos', async (req, res) => {
+  try { res.json({ success: true, data: await comboQueries.getAll(req.query.activeOnly === 'true') }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/combos/:id', (req, res) => {
-  try { res.json({ success: true, data: comboQueries.getById(req.params.id) }); }
+apiRouter.get('/combos/:id', async (req, res) => {
+  try { res.json({ success: true, data: await comboQueries.getById(req.params.id) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.post('/api/combos', (req, res) => {
-  try { const id = comboQueries.create(req.body); res.json({ success: true, data: { id } }); }
+apiRouter.post('/combos', async (req, res) => {
+  try { const id = await comboQueries.create(req.body); res.json({ success: true, data: { id } }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.put('/api/combos/:id', (req, res) => {
-  try { comboQueries.update(req.params.id, req.body); res.json({ success: true }); }
+apiRouter.put('/combos/:id', async (req, res) => {
+  try { await comboQueries.update(req.params.id, req.body); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.delete('/api/combos/:id', (req, res) => {
-  try { comboQueries.delete(req.params.id); res.json({ success: true }); }
+apiRouter.delete('/combos/:id', async (req, res) => {
+  try { await comboQueries.delete(req.params.id); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.patch('/api/combos/:id/toggle-active', (req, res) => {
-  try { comboQueries.toggleActive(req.params.id); res.json({ success: true }); }
+apiRouter.patch('/combos/:id/toggle-active', async (req, res) => {
+  try { await comboQueries.toggleActive(req.params.id); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
 
 // --- Customers ---
-app.get('/api/customers', (req, res) => {
-  try { res.json({ success: true, data: customerQueries.getAll(req.query.search) }); }
+apiRouter.get('/customers', async (req, res) => {
+  try { res.json({ success: true, data: await customerQueries.getAll(req.query.search) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/customers/:id', (req, res) => {
-  try { res.json({ success: true, data: customerQueries.getById(req.params.id) }); }
+apiRouter.get('/customers/:id', async (req, res) => {
+  try { res.json({ success: true, data: await customerQueries.getById(req.params.id) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.post('/api/customers', (req, res) => {
-  try { const id = customerQueries.create(req.body); res.json({ success: true, data: { id } }); }
+apiRouter.post('/customers', async (req, res) => {
+  try { const id = await customerQueries.create(req.body); res.json({ success: true, data: { id } }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.put('/api/customers/:id', (req, res) => {
-  try { customerQueries.update(req.params.id, req.body); res.json({ success: true }); }
+apiRouter.put('/customers/:id', async (req, res) => {
+  try { await customerQueries.update(req.params.id, req.body); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.delete('/api/customers/:id', (req, res) => {
-  try { customerQueries.delete(req.params.id); res.json({ success: true }); }
+apiRouter.delete('/customers/:id', async (req, res) => {
+  try { await customerQueries.delete(req.params.id); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.post('/api/customers/:id/use-points', (req, res) => {
+apiRouter.post('/customers/:id/use-points', async (req, res) => {
   try { 
-    const ok = customerQueries.usePoints(req.params.id, req.body.points); 
+    const ok = await customerQueries.usePoints(req.params.id, req.body.points); 
     res.json({ success: ok, error: ok ? null : 'Không đủ điểm' }); 
   } catch (err) { res.json({ success: false, error: err.message }); }
 });
 
 // --- Orders ---
-app.get('/api/orders', (req, res) => {
-  try { res.json({ success: true, data: orderQueries.getAll(req.query) }); }
+apiRouter.get('/orders', async (req, res) => {
+  try { res.json({ success: true, data: await orderQueries.getAll(req.query) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/orders/:id', (req, res) => {
-  try { res.json({ success: true, data: orderQueries.getById(req.params.id) }); }
+apiRouter.get('/orders/:id', async (req, res) => {
+  try { res.json({ success: true, data: await orderQueries.getById(req.params.id) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.post('/api/orders', (req, res) => {
-  try { const id = orderQueries.create(req.body); res.json({ success: true, data: { id } }); }
+apiRouter.post('/orders', async (req, res) => {
+  try { const id = await orderQueries.create(req.body); res.json({ success: true, data: { id } }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.put('/api/orders/:id', (req, res) => {
-  try { orderQueries.update(req.params.id, req.body); res.json({ success: true }); }
+apiRouter.put('/orders/:id', async (req, res) => {
+  try { await orderQueries.update(req.params.id, req.body); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.patch('/api/orders/:id/payment', (req, res) => {
-  try { orderQueries.updatePaymentMethod(req.params.id, req.body.method); res.json({ success: true }); }
+apiRouter.patch('/orders/:id/payment', async (req, res) => {
+  try { await orderQueries.updatePaymentMethod(req.params.id, req.body.method); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.delete('/api/orders/:id', (req, res) => {
-  try { orderQueries.delete(req.params.id, req.query.userRole); res.json({ success: true }); }
+apiRouter.delete('/orders/:id', async (req, res) => {
+  try { await orderQueries.delete(req.params.id, req.query.userRole); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
 
 // --- Stats ---
-app.get('/api/stats/dashboard', (req, res) => {
-  try { res.json({ success: true, data: statsQueries.getDashboard() }); }
+apiRouter.get('/stats/dashboard', async (req, res) => {
+  try { res.json({ success: true, data: await statsQueries.getDashboard() }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/stats/revenue', (req, res) => {
-  try { res.json({ success: true, data: statsQueries.getRevenueByDateRange(req.query.dateFrom, req.query.dateTo) }); }
+apiRouter.get('/stats/revenue', async (req, res) => {
+  try { res.json({ success: true, data: await statsQueries.getRevenueByDateRange(req.query.dateFrom, req.query.dateTo) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/stats/revenue-by-month', (req, res) => {
-  try { res.json({ success: true, data: statsQueries.getRevenueByMonth(req.query.year) }); }
+apiRouter.get('/stats/revenue-by-month', async (req, res) => {
+  try { res.json({ success: true, data: await statsQueries.getRevenueByMonth(req.query.year) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/stats/top-products', (req, res) => {
-  try { res.json({ success: true, data: statsQueries.getTopProducts(req.query.dateFrom, req.query.dateTo, req.query.limit) }); }
+apiRouter.get('/stats/top-products', async (req, res) => {
+  try { res.json({ success: true, data: await statsQueries.getTopProducts(req.query.dateFrom, req.query.dateTo, req.query.limit) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
 
 // --- Activity Log ---
-app.post('/api/activity/log', (req, res) => {
-  try { activityQueries.log(req.body.userId, req.body.action, req.body.details); res.json({ success: true }); }
+apiRouter.post('/activity/log', async (req, res) => {
+  try { await activityQueries.log(req.body.userId, req.body.action, req.body.details); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/activity/recent', (req, res) => {
-  try { res.json({ success: true, data: activityQueries.getRecent(req.query.limit) }); }
+apiRouter.get('/activity/recent', async (req, res) => {
+  try { res.json({ success: true, data: await activityQueries.getRecent(req.query.limit) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
 
 // --- Shifts ---
-app.post('/api/shifts/open', (req, res) => {
-  try { const id = shiftQueries.open(req.body.userId, req.body.startAmount); res.json({ success: true, data: { id } }); }
+apiRouter.post('/shifts/open', async (req, res) => {
+  try { const id = await shiftQueries.open(req.body.userId, req.body.startAmount); res.json({ success: true, data: { id } }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.post('/api/shifts/:id/close', (req, res) => {
-  try { shiftQueries.close(req.params.id, req.body.note); res.json({ success: true }); }
+apiRouter.post('/shifts/:id/close', async (req, res) => {
+  try { await shiftQueries.close(req.params.id, req.body.note); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/shifts/current/:userId', (req, res) => {
-  try { res.json({ success: true, data: shiftQueries.getCurrent(req.params.userId) }); }
+apiRouter.get('/shifts/current/:userId', async (req, res) => {
+  try { res.json({ success: true, data: await shiftQueries.getCurrent(req.params.userId) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/shifts', (req, res) => {
-  try { res.json({ success: true, data: shiftQueries.getAll(req.query.limit) }); }
+apiRouter.get('/shifts', async (req, res) => {
+  try { res.json({ success: true, data: await shiftQueries.getAll(req.query.limit) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/shifts/summary/:id', (req, res) => {
-  try { res.json({ success: true, data: shiftQueries.getSummary(req.params.id) }); }
+apiRouter.get('/shifts/summary/:id', async (req, res) => {
+  try { res.json({ success: true, data: await shiftQueries.getSummary(req.params.id) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.post('/api/shifts/:id/transactions', (req, res) => {
-  try { const id = shiftQueries.addTransaction(req.params.id, req.body.type, req.body.amount, req.body.reason, req.body.note); res.json({ success: true, data: { id } }); }
+apiRouter.post('/shifts/:id/transactions', async (req, res) => {
+  try { const id = await shiftQueries.addTransaction(req.params.id, req.body.type, req.body.amount, req.body.reason, req.body.note); res.json({ success: true, data: { id } }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/shifts/:id/transactions', (req, res) => {
-  try { res.json({ success: true, data: shiftQueries.getTransactions(req.params.id) }); }
+apiRouter.get('/shifts/:id/transactions', async (req, res) => {
+  try { res.json({ success: true, data: await shiftQueries.getTransactions(req.params.id) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.delete('/api/shifts/transactions/:id', (req, res) => {
-  try { shiftQueries.deleteTransaction(req.params.id); res.json({ success: true }); }
+apiRouter.delete('/shifts/transactions/:id', async (req, res) => {
+  try { await shiftQueries.deleteTransaction(req.params.id); res.json({ success: true }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/shifts/by-date', (req, res) => {
-  try { res.json({ success: true, data: shiftQueries.getByDate(req.query.from, req.query.to) }); }
+apiRouter.get('/shifts/by-date', async (req, res) => {
+  try { res.json({ success: true, data: await shiftQueries.getByDate(req.query.from, req.query.to) }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
-app.get('/api/shifts/last-closed/cash', (req, res) => {
-  try { res.json({ success: true, data: shiftQueries.getLastClosed() }); }
+apiRouter.get('/shifts/last-closed/cash', async (req, res) => {
+  try { res.json({ success: true, data: await shiftQueries.getLastClosed() }); }
   catch (err) { res.json({ success: false, error: err.message }); }
 });
 
 // --- QR Code ---
-app.post('/api/qr/generate', async (req, res) => {
+apiRouter.post('/qr/generate', async (req, res) => {
   try {
     const dataUrl = await QRCode.toDataURL(req.body.text, { width: 280, margin: 2, color: { dark: '#000', light: '#fff' } });
     res.json({ success: true, data: dataUrl });
@@ -259,23 +261,22 @@ app.post('/api/qr/generate', async (req, res) => {
 
 // --- Backup ---
 const upload = multer({ dest: 'uploads/' });
-app.get('/api/backup/create', (req, res) => {
+apiRouter.get('/backup/create', async (req, res) => {
   try {
-    const dbPath = path.join(__dirname, 'data', 'appbanhang.db');
-    res.download(dbPath, `backup_appbanhang_${new Date().toISOString().split('T')[0]}.db`);
+    // Cannot backup Postgres easily via file download like SQLite.
+    // Return error or handle pg_dump
+    res.status(500).json({ success: false, error: "Backup file is not supported for Postgres" });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
-app.post('/api/backup/restore', upload.single('db'), (req, res) => {
+apiRouter.post('/backup/restore', upload.single('db'), async (req, res) => {
   try {
-    if (!req.file) return res.json({ success: false, error: 'No file uploaded' });
-    const dbPath = path.join(__dirname, 'data', 'appbanhang.db');
-    getDb().close();
-    fs.copyFileSync(req.file.path, dbPath);
-    initDatabase();
-    fs.unlinkSync(req.file.path);
-    res.json({ success: true });
+    res.json({ success: false, error: "Restore file is not supported for Postgres" });
   } catch (err) { res.json({ success: false, error: err.message }); }
 });
+
+// Mount router on both /_/backend/api and /api (for local dev fallback)
+app.use('/_/backend/api', apiRouter);
+app.use('/api', apiRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

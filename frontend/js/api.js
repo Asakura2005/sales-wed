@@ -11,7 +11,7 @@ async function apiCall(method, endpoint, body = null) {
     if (body) {
       options.body = JSON.stringify(body);
     }
-    const res = await fetch(`/api${endpoint}`, options);
+    const res = await fetch(`/_/backend/api${endpoint}`, options);
     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -140,7 +140,7 @@ window.api = {
 
   // Backup
   createBackup: async () => {
-    window.location.href = '/api/backup/create';
+    window.location.href = '/_/backend/api/backup/create';
     return { success: true };
   },
   restoreBackup: async (file) => {
@@ -148,7 +148,7 @@ window.api = {
     const formData = new FormData();
     formData.append('db', file);
     try {
-      const res = await fetch('/api/backup/restore', {
+      const res = await fetch('/_/backend/api/backup/restore', {
         method: 'POST',
         body: formData
       });

@@ -1,629 +1,505 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+require('dotenv').config();
+const { db } = require('@vercel/postgres');
 const bcrypt = require('bcryptjs');
 
-let db;
-
-function getDbPath() {
-  const fs = require('fs');
-  const dir = path.join(__dirname, '..', 'data');
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  return path.join(dir, 'appbanhang.db');
+// Helper to convert ? to $1, $2 etc.
+function pgSql(text) {
+  let i = 1;
+  return text.replace(/\?/g, () => `$${i++}`);
 }
 
-function initDatabase(dbPath) {
-  db = new Database(dbPath || getDbPath());
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  createTables();
-  seedDefaultData();
-  return db;
+async function query(text, params = []) {
+  return await db.query(pgSql(text), params);
 }
 
-function getDb() {
-  return db;
+async function get(text, ...params) {
+  const res = await query(text, params);
+  return res.rows[0] || null;
 }
 
-function createTables() {
-  db.exec(`
+async function all(text, ...params) {
+  const res = await query(text, params);
+  return res.rows;
+}
+
+async function run(text, ...params) {
+  return await query(text, params);
+}
+
+async function initDatabase() {
+  await run(`
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      full_name TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'employee' CHECK(role IN ('admin', 'employee')),
-      phone TEXT,
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(255) UNIQUE NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      full_name VARCHAR(255) NOT NULL,
+      role VARCHAR(50) NOT NULL DEFAULT 'employee' CHECK(role IN ('admin', 'employee')),
+      phone VARCHAR(50),
       active INTEGER DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS categories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
       description TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      category_id INTEGER,
-      price REAL NOT NULL DEFAULT 0,
-      cost_price REAL DEFAULT 0,
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+      price DECIMAL(10,2) NOT NULL DEFAULT 0,
+      cost_price DECIMAL(10,2) DEFAULT 0,
       stock INTEGER DEFAULT 0,
-      unit TEXT DEFAULT 'cái',
-      barcode TEXT,
+      unit VARCHAR(50) DEFAULT 'cái',
+      barcode VARCHAR(255),
       image TEXT,
       active INTEGER DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS customers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      phone TEXT,
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      phone VARCHAR(50),
       address TEXT,
-      email TEXT,
+      email VARCHAR(255),
       notes TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      loyalty_points INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS orders (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      customer_id INTEGER,
-      user_id INTEGER NOT NULL,
-      total REAL NOT NULL DEFAULT 0,
-      discount REAL DEFAULT 0,
-      final_total REAL NOT NULL DEFAULT 0,
-      payment_method TEXT DEFAULT 'cash' CHECK(payment_method IN ('cash', 'transfer', 'card')),
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'completed', 'cancelled')),
+      id SERIAL PRIMARY KEY,
+      customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      total DECIMAL(10,2) NOT NULL DEFAULT 0,
+      discount DECIMAL(10,2) DEFAULT 0,
+      final_total DECIMAL(10,2) NOT NULL DEFAULT 0,
+      payment_method VARCHAR(50) DEFAULT 'cash' CHECK(payment_method IN ('cash', 'transfer', 'card')),
+      status VARCHAR(50) DEFAULT 'pending' CHECK(status IN ('pending', 'completed', 'cancelled')),
       note TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      points_earned INTEGER DEFAULT 0,
+      points_used INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS order_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      order_id INTEGER NOT NULL,
-      product_id INTEGER NOT NULL,
-      product_name TEXT NOT NULL,
+      id SERIAL PRIMARY KEY,
+      order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      product_name VARCHAR(255) NOT NULL,
       quantity INTEGER NOT NULL DEFAULT 1,
-      price REAL NOT NULL,
-      subtotal REAL NOT NULL,
+      price DECIMAL(10,2) NOT NULL,
+      subtotal DECIMAL(10,2) NOT NULL,
       note TEXT DEFAULT '',
-      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-      FOREIGN KEY (product_id) REFERENCES products(id)
+      size_name VARCHAR(255) DEFAULT '',
+      toppings TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS activity_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      action TEXT NOT NULL,
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id),
+      action VARCHAR(255) NOT NULL,
       details TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS shifts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-      end_time DATETIME,
-      start_amount REAL DEFAULT 0,
-      end_amount REAL DEFAULT 0,
-      status TEXT DEFAULT 'open' CHECK(status IN ('open', 'closed')),
-      note TEXT,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      end_time TIMESTAMP,
+      start_amount DECIMAL(10,2) DEFAULT 0,
+      end_amount DECIMAL(10,2) DEFAULT 0,
+      status VARCHAR(50) DEFAULT 'open' CHECK(status IN ('open', 'closed')),
+      note TEXT
     );
 
     CREATE TABLE IF NOT EXISTS shift_transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      shift_id INTEGER NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('in', 'out')),
-      amount REAL NOT NULL,
+      id SERIAL PRIMARY KEY,
+      shift_id INTEGER NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
+      type VARCHAR(50) NOT NULL CHECK(type IN ('in', 'out')),
+      amount DECIMAL(10,2) NOT NULL,
       reason TEXT DEFAULT '',
       note TEXT DEFAULT '',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
-  `);
 
-  db.exec(`
     CREATE TABLE IF NOT EXISTS product_sizes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      product_id INTEGER NOT NULL,
-      size_name TEXT NOT NULL,
-      price REAL NOT NULL,
-      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+      id SERIAL PRIMARY KEY,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      size_name VARCHAR(255) NOT NULL,
+      price DECIMAL(10,2) NOT NULL
     );
-  `);
 
-  db.exec(`
     CREATE TABLE IF NOT EXISTS combos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      price REAL NOT NULL,
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      price DECIMAL(10,2) NOT NULL,
       description TEXT DEFAULT '',
       active INTEGER DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
-  `);
 
-  db.exec(`
     CREATE TABLE IF NOT EXISTS combo_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      combo_id INTEGER NOT NULL,
-      product_id INTEGER NOT NULL,
-      product_name TEXT NOT NULL,
-      quantity INTEGER DEFAULT 1,
-      FOREIGN KEY (combo_id) REFERENCES combos(id) ON DELETE CASCADE,
-      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+      id SERIAL PRIMARY KEY,
+      combo_id INTEGER NOT NULL REFERENCES combos(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      product_name VARCHAR(255) NOT NULL,
+      quantity INTEGER DEFAULT 1
     );
   `);
 
-  // Migrations for existing databases
-  try { db.prepare("ALTER TABLE order_items ADD COLUMN note TEXT DEFAULT ''").run(); } catch(e) {}
-  try { db.prepare("ALTER TABLE orders ADD COLUMN points_earned INTEGER DEFAULT 0").run(); } catch(e) {}
-  try { db.prepare("ALTER TABLE orders ADD COLUMN points_used INTEGER DEFAULT 0").run(); } catch(e) {}
-  try { db.prepare("ALTER TABLE order_items ADD COLUMN size_name TEXT DEFAULT ''").run(); } catch(e) {}
-  try { db.prepare("ALTER TABLE order_items ADD COLUMN toppings TEXT DEFAULT ''").run(); } catch(e) {}
-  try { db.prepare("ALTER TABLE customers ADD COLUMN loyalty_points INTEGER DEFAULT 0").run(); } catch(e) {}
+  await seedDefaultData();
 }
 
-function seedDefaultData() {
-  const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
-  if (!adminExists) {
+async function seedDefaultData() {
+  const adminCountRes = await get('SELECT COUNT(*) as count FROM users WHERE username = ?', 'admin');
+  if (parseInt(adminCountRes.count) === 0) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare(`
+    await run(`
       INSERT INTO users (username, password_hash, full_name, role, phone)
       VALUES (?, ?, ?, ?, ?)
-    `).run('admin', hash, 'Quản trị viên', 'admin', '0000000000');
+    `, 'admin', hash, 'Quản trị viên', 'admin', '0000000000');
   }
 
-  const catCount = db.prepare('SELECT COUNT(*) as count FROM categories').get();
-  if (catCount.count === 0) {
-    const insertCat = db.prepare('INSERT INTO categories (name, description) VALUES (?, ?)');
-    insertCat.run('Đồ ăn', 'Các loại đồ ăn');
-    insertCat.run('Nước uống', 'Các loại nước uống');
-    insertCat.run('Khác', 'Sản phẩm khác');
+  const catCountRes = await get('SELECT COUNT(*) as count FROM categories');
+  if (parseInt(catCountRes.count) === 0) {
+    await run('INSERT INTO categories (name, description) VALUES (?, ?)', 'Đồ ăn', 'Các loại đồ ăn');
+    await run('INSERT INTO categories (name, description) VALUES (?, ?)', 'Nước uống', 'Các loại nước uống');
+    await run('INSERT INTO categories (name, description) VALUES (?, ?)', 'Khác', 'Sản phẩm khác');
   }
 
-  // Seed 20 sample products
-  const prodCount = db.prepare('SELECT COUNT(*) as count FROM products').get();
-  if (prodCount.count === 0) {
-    const insertProd = db.prepare(`
-      INSERT INTO products (name, category_id, price, cost_price, stock, unit, barcode)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-    // Đồ ăn (category_id = 1)
-    insertProd.run('Cơm gà xối mỡ',       1, 45000,  25000, 100, 'phần', 'DA001');
-    insertProd.run('Cơm sườn nướng',       1, 50000,  28000, 80,  'phần', 'DA002');
-    insertProd.run('Phở bò tái',           1, 55000,  30000, 60,  'tô',   'DA003');
-    insertProd.run('Bún bò Huế',           1, 50000,  27000, 70,  'tô',   'DA004');
-    insertProd.run('Mì xào hải sản',       1, 60000,  32000, 50,  'dĩa',  'DA005');
-    insertProd.run('Bánh mì thịt',         1, 25000,  12000, 150, 'ổ',    'DA006');
-    insertProd.run('Gỏi cuốn tôm thịt',   1, 35000,  18000, 40,  'phần', 'DA007');
-    // Nước uống (category_id = 2)
-    insertProd.run('Trà sữa trân châu',    2, 35000,  15000, 200, 'ly',   'NU001');
-    insertProd.run('Cà phê sữa đá',        2, 25000,  10000, 300, 'ly',   'NU002');
-    insertProd.run('Cà phê đen đá',        2, 20000,  8000,  300, 'ly',   'NU003');
-    insertProd.run('Nước cam tươi',         2, 30000,  12000, 100, 'ly',   'NU004');
-    insertProd.run('Sinh tố bơ',           2, 35000,  15000, 80,  'ly',   'NU005');
-    insertProd.run('Nước mía',             2, 15000,  5000,  200, 'ly',   'NU006');
-    insertProd.run('Trà đào cam sả',       2, 30000,  12000, 150, 'ly',   'NU007');
-    insertProd.run('Coca Cola',            2, 15000,  8000,  500, 'lon',  'NU008');
-    insertProd.run('Nước suối',            2, 10000,  3000,  500, 'chai', 'NU009');
-    // Khác (category_id = 3)
-    insertProd.run('Khăn giấy',            3, 5000,   2000,  300, 'gói',  'KH001');
-    insertProd.run('Tăm tre',              3, 3000,   1000,  200, 'hộp',  'KH002');
-    insertProd.run('Kẹo cao su',           3, 10000,  5000,  100, 'hộp',  'KH003');
-    insertProd.run('Snack khoai tây',      3, 15000,  8000,  120, 'gói',  'KH004');
+  const prodCountRes = await get('SELECT COUNT(*) as count FROM products');
+  if (parseInt(prodCountRes.count) === 0) {
+    // Seed some products
+    const seed = async (name, cat, price, cost, stock, unit, barcode) => {
+      await run(`
+        INSERT INTO products (name, category_id, price, cost_price, stock, unit, barcode)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, name, cat, price, cost, stock, unit, barcode);
+    };
+    await seed('Cơm gà xối mỡ',       1, 45000,  25000, 100, 'phần', 'DA001');
+    await seed('Trà sữa trân châu',    2, 35000,  15000, 200, 'ly',   'NU001');
+    await seed('Khăn giấy',            3, 5000,   2000,  300, 'gói',  'KH001');
   }
 }
 
 // ==================== USER QUERIES ====================
 const userQueries = {
-  login(username, password) {
-    const user = db.prepare('SELECT * FROM users WHERE username = ? AND active = 1').get(username);
+  async login(username, password) {
+    const user = await get('SELECT * FROM users WHERE username = ? AND active = 1', username);
     if (!user) return null;
     if (!bcrypt.compareSync(password, user.password_hash)) return null;
     const { password_hash, ...safeUser } = user;
     return safeUser;
   },
-
-  getAll() {
-    return db.prepare('SELECT id, username, full_name, role, phone, active, created_at FROM users ORDER BY created_at DESC').all();
+  async getAll() {
+    return await all('SELECT id, username, full_name, role, phone, active, created_at FROM users ORDER BY created_at DESC');
   },
-
-  getById(id) {
-    return db.prepare('SELECT id, username, full_name, role, phone, active, created_at FROM users WHERE id = ?').get(id);
+  async getById(id) {
+    return await get('SELECT id, username, full_name, role, phone, active, created_at FROM users WHERE id = ?', id);
   },
-
-  create(data) {
+  async create(data) {
     const hash = bcrypt.hashSync(data.password, 10);
-    const stmt = db.prepare(`
+    const res = await query(`
       INSERT INTO users (username, password_hash, full_name, role, phone)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(data.username, hash, data.full_name, data.role || 'employee', data.phone || '');
-    return result.lastInsertRowid;
+      VALUES ($1, $2, $3, $4, $5) RETURNING id
+    `, [data.username, hash, data.full_name, data.role || 'employee', data.phone || '']);
+    return res.rows[0].id;
   },
-
-  update(id, data) {
-    let sql = 'UPDATE users SET full_name = ?, role = ?, phone = ?, active = ? WHERE id = ?';
-    let params = [data.full_name, data.role, data.phone, data.active !== undefined ? data.active : 1, id];
-
+  async update(id, data) {
     if (data.password) {
-      sql = 'UPDATE users SET full_name = ?, role = ?, phone = ?, active = ?, password_hash = ? WHERE id = ?';
       const hash = bcrypt.hashSync(data.password, 10);
-      params = [data.full_name, data.role, data.phone, data.active !== undefined ? data.active : 1, hash, id];
+      await run('UPDATE users SET full_name = ?, role = ?, phone = ?, active = ?, password_hash = ? WHERE id = ?',
+        data.full_name, data.role, data.phone, data.active !== undefined ? data.active : 1, hash, id);
+    } else {
+      await run('UPDATE users SET full_name = ?, role = ?, phone = ?, active = ? WHERE id = ?',
+        data.full_name, data.role, data.phone, data.active !== undefined ? data.active : 1, id);
     }
-
-    return db.prepare(sql).run(...params);
   },
-
-  delete(id) {
-    const user = db.prepare('SELECT username FROM users WHERE id = ?').get(id);
+  async delete(id) {
+    const user = await get('SELECT username FROM users WHERE id = ?', id);
     if (user && user.username === 'admin') throw new Error('Không thể xóa tài khoản admin');
-    return db.prepare('DELETE FROM users WHERE id = ? AND username != ?').run(id, 'admin');
+    await run('DELETE FROM users WHERE id = ? AND username != ?', id, 'admin');
   }
 };
 
 // ==================== CATEGORY QUERIES ====================
 const categoryQueries = {
-  getAll() {
-    return db.prepare('SELECT * FROM categories ORDER BY name').all();
+  async getAll() {
+    return await all('SELECT * FROM categories ORDER BY name');
   },
-  create(data) {
-    const result = db.prepare('INSERT INTO categories (name, description) VALUES (?, ?)').run(data.name, data.description || '');
-    return result.lastInsertRowid;
+  async create(data) {
+    const res = await query('INSERT INTO categories (name, description) VALUES ($1, $2) RETURNING id', [data.name, data.description || '']);
+    return res.rows[0].id;
   },
-  update(id, data) {
-    return db.prepare('UPDATE categories SET name = ?, description = ? WHERE id = ?').run(data.name, data.description || '', id);
+  async update(id, data) {
+    await run('UPDATE categories SET name = ?, description = ? WHERE id = ?', data.name, data.description || '', id);
   },
-  delete(id) {
-    return db.prepare('DELETE FROM categories WHERE id = ?').run(id);
+  async delete(id) {
+    await run('DELETE FROM categories WHERE id = ?', id);
   }
 };
 
 // ==================== PRODUCT QUERIES ====================
 const productQueries = {
-  getAll(search = '', categoryId = null) {
-    let sql = `SELECT p.*, c.name as category_name
+  async getAll(search = '', categoryId = null) {
+    let text = `SELECT p.*, c.name as category_name
                FROM products p
                LEFT JOIN categories c ON p.category_id = c.id
                WHERE p.active = 1`;
     const params = [];
-
     if (search) {
-      sql += ' AND (p.name LIKE ? OR p.barcode LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`);
+      params.push(`%${search}%`);
+      text += ` AND (p.name ILIKE $${params.length} OR p.barcode ILIKE $${params.length})`;
     }
     if (categoryId) {
-      sql += ' AND p.category_id = ?';
       params.push(categoryId);
+      text += ` AND p.category_id = $${params.length}`;
     }
-    sql += ' ORDER BY p.name';
-    return db.prepare(sql).all(...params);
+    text += ' ORDER BY p.name';
+    return await all(text, ...params);
   },
-
-  getById(id) {
-    return db.prepare(`
+  async getById(id) {
+    return await get(`
       SELECT p.*, c.name as category_name
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
       WHERE p.id = ?
-    `).get(id);
+    `, id);
   },
-
-  create(data) {
-    const result = db.prepare(`
+  async create(data) {
+    const res = await query(`
       INSERT INTO products (name, category_id, price, cost_price, stock, unit, barcode)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(data.name, data.category_id || null, data.price, data.cost_price || 0, data.stock || 0, data.unit || 'cái', data.barcode || '');
-    return result.lastInsertRowid;
+      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
+    `, [data.name, data.category_id || null, data.price, data.cost_price || 0, data.stock || 0, data.unit || 'cái', data.barcode || '']);
+    return res.rows[0].id;
   },
-
-  update(id, data) {
-    return db.prepare(`
+  async update(id, data) {
+    await run(`
       UPDATE products SET name = ?, category_id = ?, price = ?, cost_price = ?, stock = ?, unit = ?, barcode = ?
       WHERE id = ?
-    `).run(data.name, data.category_id || null, data.price, data.cost_price || 0, data.stock || 0, data.unit || 'cái', data.barcode || '', id);
+    `, data.name, data.category_id || null, data.price, data.cost_price || 0, data.stock || 0, data.unit || 'cái', data.barcode || '', id);
   },
-
-  delete(id) {
-    return db.prepare('UPDATE products SET active = 0 WHERE id = ?').run(id);
+  async delete(id) {
+    await run('UPDATE products SET active = 0 WHERE id = ?', id);
   },
-
-  updateStock(id, quantity) {
-    return db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(quantity, id);
+  async updateStock(id, quantity) {
+    await run('UPDATE products SET stock = stock - ? WHERE id = ?', quantity, id);
   }
 };
 
 // ==================== SIZE QUERIES ====================
 const sizeQueries = {
-  getByProduct(productId) {
-    return db.prepare('SELECT * FROM product_sizes WHERE product_id = ? ORDER BY price').all(productId);
+  async getByProduct(productId) {
+    return await all('SELECT * FROM product_sizes WHERE product_id = ? ORDER BY price', productId);
   },
-
-  set(productId, sizes) {
-    // sizes = [{size_name, price}, ...]
-    db.prepare('DELETE FROM product_sizes WHERE product_id = ?').run(productId);
-    const insert = db.prepare('INSERT INTO product_sizes (product_id, size_name, price) VALUES (?, ?, ?)');
-    for (const s of sizes) {
-      if (s.size_name && s.price > 0) {
-        insert.run(productId, s.size_name, s.price);
+  async set(productId, sizes) {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM product_sizes WHERE product_id = $1', [productId]);
+      for (const s of sizes) {
+        if (s.size_name && s.price > 0) {
+          await client.query('INSERT INTO product_sizes (product_id, size_name, price) VALUES ($1, $2, $3)', [productId, s.size_name, s.price]);
+        }
       }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
     }
   },
-
-  delete(productId) {
-    db.prepare('DELETE FROM product_sizes WHERE product_id = ?').run(productId);
+  async delete(productId) {
+    await run('DELETE FROM product_sizes WHERE product_id = ?', productId);
   }
 };
 
 // ==================== CUSTOMER QUERIES ====================
 const customerQueries = {
-  getAll(search = '') {
-    let sql = 'SELECT * FROM customers';
-    const params = [];
+  async getAll(search = '') {
     if (search) {
-      sql += ' WHERE name LIKE ? OR phone LIKE ?';
-      params.push(`%${search}%`, `%${search}%`);
+      return await all('SELECT * FROM customers WHERE name ILIKE ? OR phone ILIKE ? ORDER BY name', `%${search}%`, `%${search}%`);
     }
-    sql += ' ORDER BY name';
-    return db.prepare(sql).all(...params);
+    return await all('SELECT * FROM customers ORDER BY name');
   },
-
-  getById(id) {
-    return db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
+  async getById(id) {
+    return await get('SELECT * FROM customers WHERE id = ?', id);
   },
-
-  create(data) {
-    const result = db.prepare(`
+  async create(data) {
+    const res = await query(`
       INSERT INTO customers (name, phone, address, email, notes)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(data.name, data.phone || '', data.address || '', data.email || '', data.notes || '');
-    return result.lastInsertRowid;
+      VALUES ($1, $2, $3, $4, $5) RETURNING id
+    `, [data.name, data.phone || '', data.address || '', data.email || '', data.notes || '']);
+    return res.rows[0].id;
   },
-
-  update(id, data) {
-    return db.prepare(`
-      UPDATE customers SET name = ?, phone = ?, address = ?, email = ?, notes = ?
-      WHERE id = ?
-    `).run(data.name, data.phone || '', data.address || '', data.email || '', data.notes || '', id);
+  async update(id, data) {
+    await run(`UPDATE customers SET name = ?, phone = ?, address = ?, email = ?, notes = ? WHERE id = ?`,
+      data.name, data.phone || '', data.address || '', data.email || '', data.notes || '', id);
   },
-
-  delete(id) {
-    return db.prepare('DELETE FROM customers WHERE id = ?').run(id);
+  async delete(id) {
+    await run('DELETE FROM customers WHERE id = ?', id);
   },
-
-  addPoints(id, points) {
-    return db.prepare('UPDATE customers SET loyalty_points = loyalty_points + ? WHERE id = ?').run(points, id);
+  async addPoints(id, points) {
+    await run('UPDATE customers SET loyalty_points = loyalty_points + ? WHERE id = ?', points, id);
   },
-
-  usePoints(id, points) {
-    const customer = db.prepare('SELECT loyalty_points FROM customers WHERE id = ?').get(id);
+  async usePoints(id, points) {
+    const customer = await get('SELECT loyalty_points FROM customers WHERE id = ?', id);
     if (!customer || customer.loyalty_points < points) return false;
-    db.prepare('UPDATE customers SET loyalty_points = loyalty_points - ? WHERE id = ?').run(points, id);
+    await run('UPDATE customers SET loyalty_points = loyalty_points - ? WHERE id = ?', points, id);
     return true;
   }
 };
 
 // ==================== ORDER QUERIES ====================
 const orderQueries = {
-  getAll(filters = {}) {
-    let sql = `SELECT o.*, u.full_name as user_name, c.name as customer_name
+  async getAll(filters = {}) {
+    let sqlText = `SELECT o.*, u.full_name as user_name, c.name as customer_name
                FROM orders o
                LEFT JOIN users u ON o.user_id = u.id
                LEFT JOIN customers c ON o.customer_id = c.id
                WHERE 1=1`;
     const params = [];
-
-    if (filters.status) {
-      sql += ' AND o.status = ?';
-      params.push(filters.status);
-    }
-    if (filters.dateFrom) {
-      sql += ' AND DATE(o.created_at) >= ?';
-      params.push(filters.dateFrom);
-    }
-    if (filters.dateTo) {
-      sql += ' AND DATE(o.created_at) <= ?';
-      params.push(filters.dateTo);
-    }
-    if (filters.userId) {
-      sql += ' AND o.user_id = ?';
-      params.push(filters.userId);
-    }
+    if (filters.status) { params.push(filters.status); sqlText += ` AND o.status = $${params.length}`; }
+    if (filters.dateFrom) { params.push(filters.dateFrom); sqlText += ` AND DATE(o.created_at) >= $${params.length}`; }
+    if (filters.dateTo) { params.push(filters.dateTo); sqlText += ` AND DATE(o.created_at) <= $${params.length}`; }
+    if (filters.userId) { params.push(filters.userId); sqlText += ` AND o.user_id = $${params.length}`; }
     if (filters.search) {
       const s = filters.search.replace('#', '');
-      sql += ' AND (CAST(o.id AS TEXT) LIKE ? OR c.name LIKE ? OR c.phone LIKE ?)';
-      params.push(`%${s}%`, `%${s}%`, `%${s}%`);
+      params.push(`%${s}%`);
+      sqlText += ` AND (CAST(o.id AS TEXT) ILIKE $${params.length} OR c.name ILIKE $${params.length} OR c.phone ILIKE $${params.length})`;
     }
-    sql += ' ORDER BY o.created_at DESC';
-
-    if (filters.limit) {
-      sql += ' LIMIT ?';
-      params.push(filters.limit);
-    }
-    return db.prepare(sql).all(...params);
+    sqlText += ' ORDER BY o.created_at DESC';
+    if (filters.limit) { params.push(filters.limit); sqlText += ` LIMIT $${params.length}`; }
+    return await all(sqlText, ...params);
   },
-
-  getById(id) {
-    const order = db.prepare(`
+  async getById(id) {
+    const order = await get(`
       SELECT o.*, u.full_name as user_name, c.name as customer_name, c.phone as customer_phone, c.address as customer_address
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
       LEFT JOIN customers c ON o.customer_id = c.id
       WHERE o.id = ?
-    `).get(id);
-
+    `, id);
     if (order) {
-      order.items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
+      order.items = await all('SELECT * FROM order_items WHERE order_id = ?', id);
     }
     return order;
   },
-
-  create(data) {
-    const insertOrder = db.prepare(`
-      INSERT INTO orders (customer_id, user_id, total, discount, final_total, payment_method, status, note, points_earned, points_used)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const insertItem = db.prepare(`
-      INSERT INTO order_items (order_id, product_id, product_name, quantity, price, subtotal, note, size_name, toppings)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const updateStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?');
-
-    const transaction = db.transaction((orderData) => {
+  async create(orderData) {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
       let pointsEarned = 0;
       if (orderData.customer_id && (orderData.status === 'completed' || !orderData.status) && !orderData.pointsUsed) {
         pointsEarned = Math.floor(orderData.final_total / 10000);
       }
+      const orderRes = await client.query(`
+        INSERT INTO orders (customer_id, user_id, total, discount, final_total, payment_method, status, note, points_earned, points_used)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id
+      `, [
+        orderData.customer_id || null, orderData.user_id, orderData.total, orderData.discount || 0,
+        orderData.final_total, orderData.payment_method || 'cash', orderData.status || 'completed',
+        orderData.note || '', pointsEarned, orderData.pointsUsed || 0
+      ]);
+      const orderId = orderRes.rows[0].id;
 
-      const result = insertOrder.run(
-        orderData.customer_id || null,
-        orderData.user_id,
-        orderData.total,
-        orderData.discount || 0,
-        orderData.final_total,
-        orderData.payment_method || 'cash',
-        orderData.status || 'completed',
-        orderData.note || '',
-        pointsEarned,
-        orderData.pointsUsed || 0
-      );
-      const orderId = result.lastInsertRowid;
-
-      // Expand combo items into real products
-      const expandedItems = [];
       for (const item of orderData.items) {
-        if (typeof item.product_id === 'string' && item.product_id.startsWith('combo_')) {
-          const comboId = parseInt(item.product_id.replace('combo_', ''));
-          const combo = db.prepare('SELECT * FROM combos WHERE id = ?').get(comboId);
-          if (combo) {
-            const comboItems = db.prepare('SELECT ci.*, p.price as original_price FROM combo_items ci LEFT JOIN products p ON ci.product_id = p.id WHERE ci.combo_id = ?').all(comboId);
-            if (comboItems.length > 0) {
-              const originalTotal = comboItems.reduce((s, ci) => s + (ci.original_price || 0) * (ci.quantity || 1), 0);
-              for (const ci of comboItems) {
-                const ratio = originalTotal > 0 ? ((ci.original_price || 0) * (ci.quantity || 1)) / originalTotal : 1 / comboItems.length;
-                expandedItems.push({
-                  product_id: ci.product_id,
-                  product_name: ci.product_name,
-                  quantity: (ci.quantity || 1) * item.quantity,
-                  price: Math.round(combo.price * ratio / (ci.quantity || 1)),
-                  subtotal: Math.round(combo.price * ratio * item.quantity),
-                  note: `[Combo: ${combo.name}]`,
-                  size_name: ''
-                });
-              }
-            }
-          }
-        } else {
-          expandedItems.push(item);
-        }
-      }
-
-      for (const item of expandedItems) {
-        insertItem.run(orderId, item.product_id, item.product_name, item.quantity, item.price, item.subtotal, item.note || '', item.size_name || '', item.toppings || '');
+        await client.query(`
+          INSERT INTO order_items (order_id, product_id, product_name, quantity, price, subtotal, note, size_name, toppings)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [
+          orderId, item.product_id, item.product_name, item.quantity, item.price, item.subtotal,
+          item.note || '', item.size_name || '', item.toppings || ''
+        ]);
         if (orderData.status === 'completed') {
-          const stockResult = updateStock.run(item.quantity, item.product_id, item.quantity);
-          if (stockResult.changes === 0) {
-            throw new Error(`Sản phẩm "${item.product_name}" không đủ tồn kho`);
-          }
+          const stockRes = await client.query('UPDATE products SET stock = stock - $1 WHERE id = $2 AND stock >= $1', [item.quantity, item.product_id]);
+          if (stockRes.rowCount === 0) throw new Error(`Sản phẩm "${item.product_name}" không đủ tồn kho`);
         }
       }
 
-      // Earn loyalty points
       if (pointsEarned > 0) {
-        db.prepare('UPDATE customers SET loyalty_points = loyalty_points + ? WHERE id = ?').run(pointsEarned, orderData.customer_id);
+        await client.query('UPDATE customers SET loyalty_points = loyalty_points + $1 WHERE id = $2', [pointsEarned, orderData.customer_id]);
       }
-
+      await client.query('COMMIT');
       return orderId;
-    });
-
-    return transaction(data);
-  },
-
-  update(id, data) {
-    return db.prepare(`
-      UPDATE orders SET status = ?, note = ?, discount = ?, final_total = ?
-      WHERE id = ?
-    `).run(data.status, data.note || '', data.discount || 0, data.final_total, id);
-  },
-
-  updatePaymentMethod(id, method) {
-    return db.prepare('UPDATE orders SET payment_method = ? WHERE id = ?').run(method, id);
-  },
-
-  delete(id, userRole) {
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-    if (!order) throw new Error('Đơn hàng không tồn tại');
-    if (order.status === 'completed' && userRole !== 'admin') {
-      throw new Error('Chỉ Admin mới có thể xóa đơn hàng đã thanh toán');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
     }
+  },
+  async update(id, data) {
+    await run(`UPDATE orders SET status = ?, note = ?, discount = ?, final_total = ? WHERE id = ?`,
+      data.status, data.note || '', data.discount || 0, data.final_total, id);
+  },
+  async updatePaymentMethod(id, method) {
+    await run('UPDATE orders SET payment_method = ? WHERE id = ?', method, id);
+  },
+  async delete(id, userRole) {
+    const order = await get('SELECT * FROM orders WHERE id = ?', id);
+    if (!order) throw new Error('Đơn hàng không tồn tại');
+    if (order.status === 'completed' && userRole !== 'admin') throw new Error('Chỉ Admin mới có thể xóa đơn hàng đã thanh toán');
 
-    const restoreStock = db.transaction(() => {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
       if (order.status === 'completed') {
-        const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
-        for (const item of items) {
-          db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(item.quantity, item.product_id);
+        const items = await client.query('SELECT * FROM order_items WHERE order_id = $1', [id]);
+        for (const item of items.rows) {
+          await client.query('UPDATE products SET stock = stock + $1 WHERE id = $2', [item.quantity, item.product_id]);
         }
-
         if (order.customer_id) {
           const ptsEarned = order.points_earned !== undefined ? order.points_earned : Math.floor(order.final_total / 10000);
           const ptsUsed = order.points_used || 0;
-          
-          if (ptsEarned > 0) {
-            db.prepare('UPDATE customers SET loyalty_points = MAX(0, loyalty_points - ?) WHERE id = ?').run(ptsEarned, order.customer_id);
-          }
-          if (ptsUsed > 0) {
-            db.prepare('UPDATE customers SET loyalty_points = loyalty_points + ? WHERE id = ?').run(ptsUsed, order.customer_id);
-          }
+          if (ptsEarned > 0) await client.query('UPDATE customers SET loyalty_points = GREATEST(0, loyalty_points - $1) WHERE id = $2', [ptsEarned, order.customer_id]);
+          if (ptsUsed > 0) await client.query('UPDATE customers SET loyalty_points = loyalty_points + $1 WHERE id = $2', [ptsUsed, order.customer_id]);
         }
       }
-      db.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
-      db.prepare('DELETE FROM orders WHERE id = ?').run(id);
-    });
-
-    return restoreStock();
+      await client.query('DELETE FROM order_items WHERE order_id = $1', [id]);
+      await client.query('DELETE FROM orders WHERE id = $1', [id]);
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
   }
 };
 
 // ==================== STATISTICS QUERIES ====================
 const statsQueries = {
-  getDashboard() {
+  async getDashboard() {
     const today = new Date().toISOString().split('T')[0];
-    const todayRevenue = db.prepare(`
+    const todayRevenue = await get(`
       SELECT COALESCE(SUM(final_total), 0) as revenue, COUNT(*) as count
-      FROM orders WHERE DATE(created_at) = ? AND status = 'completed'
-    `).get(today);
-
-    const totalProducts = db.prepare('SELECT COUNT(*) as count FROM products WHERE active = 1').get();
-    const totalCustomers = db.prepare('SELECT COUNT(*) as count FROM customers').get();
-    const lowStock = db.prepare('SELECT COUNT(*) as count FROM products WHERE active = 1 AND stock <= 5').get();
-
-    const topProducts = db.prepare(`
+      FROM orders WHERE DATE(created_at) = DATE($1) AND status = 'completed'
+    `, today);
+    const totalProducts = await get('SELECT COUNT(*) as count FROM products WHERE active = 1');
+    const totalCustomers = await get('SELECT COUNT(*) as count FROM customers');
+    const lowStock = await get('SELECT COUNT(*) as count FROM products WHERE active = 1 AND stock <= 5');
+    const topProducts = await all(`
       SELECT oi.product_name, SUM(oi.quantity) as total_qty, SUM(oi.subtotal) as total_revenue
       FROM order_items oi
       JOIN orders o ON oi.order_id = o.id
-      WHERE o.status = 'completed' AND DATE(o.created_at) = ?
-      GROUP BY oi.product_id
-      ORDER BY total_qty DESC
-      LIMIT 5
-    `).all(today);
-
-    const recentOrders = db.prepare(`
+      WHERE o.status = 'completed' AND DATE(o.created_at) = DATE($1)
+      GROUP BY oi.product_id, oi.product_name
+      ORDER BY total_qty DESC LIMIT 5
+    `, today);
+    const recentOrders = await all(`
       SELECT o.*, u.full_name as user_name
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
-      ORDER BY o.created_at DESC
-      LIMIT 10
-    `).all();
-
+      ORDER BY o.created_at DESC LIMIT 10
+    `);
     return {
       todayRevenue: todayRevenue.revenue,
       todayOrders: todayRevenue.count,
@@ -634,204 +510,193 @@ const statsQueries = {
       recentOrders
     };
   },
-
-  getRevenueByDateRange(dateFrom, dateTo) {
-    return db.prepare(`
+  async getRevenueByDateRange(dateFrom, dateTo) {
+    return await all(`
       SELECT DATE(created_at) as date, SUM(final_total) as revenue, COUNT(*) as orders
       FROM orders
-      WHERE status = 'completed' AND DATE(created_at) BETWEEN ? AND ?
-      GROUP BY DATE(created_at)
-      ORDER BY date
-    `).all(dateFrom, dateTo);
+      WHERE status = 'completed' AND DATE(created_at) BETWEEN DATE($1) AND DATE($2)
+      GROUP BY DATE(created_at) ORDER BY date
+    `, dateFrom, dateTo);
   },
-
-  getRevenueByMonth(year) {
-    return db.prepare(`
-      SELECT strftime('%m', created_at) as month, SUM(final_total) as revenue, COUNT(*) as orders
+  async getRevenueByMonth(year) {
+    return await all(`
+      SELECT EXTRACT(MONTH FROM created_at) as month, SUM(final_total) as revenue, COUNT(*) as orders
       FROM orders
-      WHERE status = 'completed' AND strftime('%Y', created_at) = ?
-      GROUP BY strftime('%m', created_at)
-      ORDER BY month
-    `).all(String(year));
+      WHERE status = 'completed' AND EXTRACT(YEAR FROM created_at) = $1
+      GROUP BY EXTRACT(MONTH FROM created_at) ORDER BY month
+    `, year);
   },
-
-  getTopProducts(dateFrom, dateTo, limit = 10) {
-    return db.prepare(`
+  async getTopProducts(dateFrom, dateTo, limit = 10) {
+    return await all(`
       SELECT oi.product_name, SUM(oi.quantity) as total_qty, SUM(oi.subtotal) as total_revenue
       FROM order_items oi
       JOIN orders o ON oi.order_id = o.id
-      WHERE o.status = 'completed' AND DATE(o.created_at) BETWEEN ? AND ?
-      GROUP BY oi.product_id
-      ORDER BY total_revenue DESC
-      LIMIT ?
-    `).all(dateFrom, dateTo, limit);
+      WHERE o.status = 'completed' AND DATE(o.created_at) BETWEEN DATE($1) AND DATE($2)
+      GROUP BY oi.product_id, oi.product_name
+      ORDER BY total_revenue DESC LIMIT $3
+    `, dateFrom, dateTo, limit);
   }
 };
 
 // ==================== ACTIVITY LOG ====================
 const activityQueries = {
-  log(userId, action, details = '') {
-    return db.prepare('INSERT INTO activity_log (user_id, action, details) VALUES (?, ?, ?)').run(userId, action, details);
+  async log(userId, action, details = '') {
+    await run('INSERT INTO activity_log (user_id, action, details) VALUES (?, ?, ?)', userId, action, details);
   },
-  getRecent(limit = 50) {
-    return db.prepare(`
+  async getRecent(limit = 50) {
+    return await all(`
       SELECT al.*, u.full_name as user_name
       FROM activity_log al
       LEFT JOIN users u ON al.user_id = u.id
-      ORDER BY al.created_at DESC
-      LIMIT ?
-    `).all(limit);
+      ORDER BY al.created_at DESC LIMIT ?
+    `, limit);
   }
 };
 
 // ==================== SHIFT QUERIES ====================
 const shiftQueries = {
-  open(userId, startAmount = 0) {
-    const existing = db.prepare("SELECT id FROM shifts WHERE user_id = ? AND status = 'open'").get(userId);
+  async open(userId, startAmount = 0) {
+    const existing = await get("SELECT id FROM shifts WHERE user_id = ? AND status = 'open'", userId);
     if (existing) throw new Error('Đã có ca đang mở');
-    const result = db.prepare('INSERT INTO shifts (user_id, start_amount) VALUES (?, ?)').run(userId, startAmount);
-    return result.lastInsertRowid;
+    const res = await query('INSERT INTO shifts (user_id, start_amount) VALUES ($1, $2) RETURNING id', [userId, startAmount]);
+    return res.rows[0].id;
   },
-
-  close(shiftId, note = '') {
-    return db.prepare("UPDATE shifts SET end_time = CURRENT_TIMESTAMP, status = 'closed', note = ? WHERE id = ?").run(note, shiftId);
+  async close(shiftId, note = '') {
+    await run("UPDATE shifts SET end_time = CURRENT_TIMESTAMP, status = 'closed', note = ? WHERE id = ?", note, shiftId);
   },
-
-  getCurrent(userId) {
-    return db.prepare("SELECT * FROM shifts WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1").get(userId);
+  async getCurrent(userId) {
+    return await get("SELECT * FROM shifts WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1", userId);
   },
-
-  getAll(limit = 30) {
-    return db.prepare(`
+  async getAll(limit = 30) {
+    return await all(`
       SELECT s.*, u.full_name as user_name
-      FROM shifts s
-      LEFT JOIN users u ON s.user_id = u.id
-      ORDER BY s.start_time DESC
-      LIMIT ?
-    `).all(limit);
+      FROM shifts s LEFT JOIN users u ON s.user_id = u.id
+      ORDER BY s.start_time DESC LIMIT ?
+    `, limit);
   },
-
-  getByDate(dateFrom, dateTo) {
-    return db.prepare(`
+  async getByDate(dateFrom, dateTo) {
+    return await all(`
       SELECT s.*, u.full_name as user_name
-      FROM shifts s
-      LEFT JOIN users u ON s.user_id = u.id
-      WHERE date(s.start_time) >= ? AND date(s.start_time) <= ?
+      FROM shifts s LEFT JOIN users u ON s.user_id = u.id
+      WHERE DATE(s.start_time) >= DATE($1) AND DATE(s.start_time) <= DATE($2)
       ORDER BY s.start_time DESC
-    `).all(dateFrom, dateTo);
+    `, dateFrom, dateTo);
   },
-
-  getLastClosed() {
-    const lastShift = db.prepare("SELECT * FROM shifts WHERE status = 'closed' ORDER BY end_time DESC LIMIT 1").get();
+  async getLastClosed() {
+    const lastShift = await get("SELECT * FROM shifts WHERE status = 'closed' ORDER BY end_time DESC LIMIT 1");
     if (!lastShift) return 0;
     const endTime = lastShift.end_time || new Date().toISOString();
-    const orders = db.prepare(`
+    const orders = await get(`
       SELECT COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN final_total ELSE 0 END), 0) as cash_total
-      FROM orders WHERE user_id = ? AND status = 'completed'
-        AND created_at >= ? AND created_at <= ?
-    `).get(lastShift.user_id, lastShift.start_time, endTime);
-    const txns = db.prepare(`
+      FROM orders WHERE user_id = $1 AND status = 'completed' AND created_at >= $2 AND created_at <= $3
+    `, lastShift.user_id, lastShift.start_time, endTime);
+    const txns = await get(`
       SELECT 
         COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END), 0) as total_cash_in,
         COALESCE(SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END), 0) as total_cash_out
-      FROM shift_transactions WHERE shift_id = ?
-    `).get(lastShift.id);
-    return (lastShift.start_amount || 0) + (orders.cash_total || 0) + (txns.total_cash_in || 0) - (txns.total_cash_out || 0);
+      FROM shift_transactions WHERE shift_id = $1
+    `, lastShift.id);
+    return parseFloat(lastShift.start_amount || 0) + parseFloat(orders.cash_total || 0) + parseFloat(txns.total_cash_in || 0) - parseFloat(txns.total_cash_out || 0);
   },
-
-  getSummary(shiftId) {
-    const shift = db.prepare('SELECT * FROM shifts WHERE id = ?').get(shiftId);
+  async getSummary(shiftId) {
+    const shift = await get('SELECT * FROM shifts WHERE id = ?', shiftId);
     if (!shift) return null;
-
     const endTime = shift.end_time || new Date().toISOString();
-    const orders = db.prepare(`
+    const orders = await get(`
       SELECT 
         COUNT(*) as order_count,
         COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN final_total ELSE 0 END), 0) as cash_total,
         COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN final_total ELSE 0 END), 0) as transfer_total,
         COALESCE(SUM(final_total), 0) as total_revenue
-      FROM orders
-      WHERE user_id = ? AND status = 'completed'
-        AND created_at >= ? AND created_at <= ?
-    `).get(shift.user_id, shift.start_time, endTime);
-
-    const txns = db.prepare(`
+      FROM orders WHERE user_id = $1 AND status = 'completed' AND created_at >= $2 AND created_at <= $3
+    `, shift.user_id, shift.start_time, endTime);
+    const txns = await get(`
       SELECT 
         COALESCE(SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END), 0) as total_cash_in,
         COALESCE(SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END), 0) as total_cash_out
-      FROM shift_transactions WHERE shift_id = ?
-    `).get(shiftId);
-
+      FROM shift_transactions WHERE shift_id = $1
+    `, shiftId);
     return { ...shift, ...orders, ...txns };
   },
-
-  addTransaction(shiftId, type, amount, reason, note = '') {
-    const result = db.prepare('INSERT INTO shift_transactions (shift_id, type, amount, reason, note) VALUES (?, ?, ?, ?, ?)').run(shiftId, type, amount, reason, note);
-    return result.lastInsertRowid;
+  async addTransaction(shiftId, type, amount, reason, note = '') {
+    const res = await query('INSERT INTO shift_transactions (shift_id, type, amount, reason, note) VALUES ($1, $2, $3, $4, $5) RETURNING id', [shiftId, type, amount, reason, note]);
+    return res.rows[0].id;
   },
-
-  getTransactions(shiftId) {
-    return db.prepare('SELECT * FROM shift_transactions WHERE shift_id = ? ORDER BY created_at DESC').all(shiftId);
+  async getTransactions(shiftId) {
+    return await all('SELECT * FROM shift_transactions WHERE shift_id = ? ORDER BY created_at DESC', shiftId);
   },
-
-  deleteTransaction(id) {
-    return db.prepare('DELETE FROM shift_transactions WHERE id = ?').run(id);
+  async deleteTransaction(id) {
+    await run('DELETE FROM shift_transactions WHERE id = ?', id);
   }
 };
 
 // ==================== COMBO QUERIES ====================
 const comboQueries = {
-  getAll(activeOnly = false) {
-    let sql = 'SELECT * FROM combos';
-    if (activeOnly) sql += ' WHERE active = 1';
-    sql += ' ORDER BY created_at DESC';
-    const combos = db.prepare(sql).all();
+  async getAll(activeOnly = false) {
+    let sqlText = 'SELECT * FROM combos';
+    if (activeOnly) sqlText += ' WHERE active = 1';
+    sqlText += ' ORDER BY created_at DESC';
+    const combos = await all(sqlText);
     for (const c of combos) {
-      c.items = db.prepare('SELECT ci.*, p.price as original_price FROM combo_items ci LEFT JOIN products p ON ci.product_id = p.id WHERE ci.combo_id = ?').all(c.id);
+      c.items = await all('SELECT ci.*, p.price as original_price FROM combo_items ci LEFT JOIN products p ON ci.product_id = p.id WHERE ci.combo_id = ?', c.id);
     }
     return combos;
   },
-
-  getById(id) {
-    const combo = db.prepare('SELECT * FROM combos WHERE id = ?').get(id);
+  async getById(id) {
+    const combo = await get('SELECT * FROM combos WHERE id = ?', id);
     if (combo) {
-      combo.items = db.prepare('SELECT ci.*, p.price as original_price FROM combo_items ci LEFT JOIN products p ON ci.product_id = p.id WHERE ci.combo_id = ?').all(id);
+      combo.items = await all('SELECT ci.*, p.price as original_price FROM combo_items ci LEFT JOIN products p ON ci.product_id = p.id WHERE ci.combo_id = ?', id);
     }
     return combo;
   },
-
-  create(data) {
-    const result = db.prepare('INSERT INTO combos (name, price, description) VALUES (?, ?, ?)').run(data.name, data.price, data.description || '');
-    const comboId = result.lastInsertRowid;
-    const insert = db.prepare('INSERT INTO combo_items (combo_id, product_id, product_name, quantity) VALUES (?, ?, ?, ?)');
-    for (const item of (data.items || [])) {
-      insert.run(comboId, item.product_id, item.product_name, item.quantity || 1);
+  async create(data) {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const res = await client.query('INSERT INTO combos (name, price, description, active) VALUES ($1, $2, $3, $4) RETURNING id', [data.name, data.price, data.description || '', data.active !== undefined ? data.active : 1]);
+      const comboId = res.rows[0].id;
+      for (const item of data.items) {
+        await client.query('INSERT INTO combo_items (combo_id, product_id, product_name, quantity) VALUES ($1, $2, $3, $4)', [comboId, item.product_id, item.product_name, item.quantity || 1]);
+      }
+      await client.query('COMMIT');
+      return comboId;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
     }
-    return comboId;
   },
-
-  update(id, data) {
-    db.prepare('UPDATE combos SET name = ?, price = ?, description = ? WHERE id = ?').run(data.name, data.price, data.description || '', id);
-    db.prepare('DELETE FROM combo_items WHERE combo_id = ?').run(id);
-    const insert = db.prepare('INSERT INTO combo_items (combo_id, product_id, product_name, quantity) VALUES (?, ?, ?, ?)');
-    for (const item of (data.items || [])) {
-      insert.run(id, item.product_id, item.product_name, item.quantity || 1);
+  async update(id, data) {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('UPDATE combos SET name = $1, price = $2, description = $3, active = $4 WHERE id = $5', [data.name, data.price, data.description || '', data.active !== undefined ? data.active : 1, id]);
+      await client.query('DELETE FROM combo_items WHERE combo_id = $1', [id]);
+      if (data.items) {
+        for (const item of data.items) {
+          await client.query('INSERT INTO combo_items (combo_id, product_id, product_name, quantity) VALUES ($1, $2, $3, $4)', [id, item.product_id, item.product_name, item.quantity || 1]);
+        }
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
     }
   },
-
-  delete(id) {
-    db.prepare('DELETE FROM combo_items WHERE combo_id = ?').run(id);
-    db.prepare('DELETE FROM combos WHERE id = ?').run(id);
+  async delete(id) {
+    await run('DELETE FROM combos WHERE id = ?', id);
   },
-
-  toggleActive(id) {
-    db.prepare('UPDATE combos SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?').run(id);
+  async toggleActive(id) {
+    await run('UPDATE combos SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?', id);
   }
 };
 
 module.exports = {
   initDatabase,
-  getDb,
+  getDb: () => db,
   userQueries,
   categoryQueries,
   productQueries,
