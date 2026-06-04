@@ -244,14 +244,22 @@ async function doBackup() {
 }
 
 async function doRestore() {
-  showConfirm('Khôi phục sẽ thay thế toàn bộ dữ liệu hiện tại. Bạn có chắc chắn?', async () => {
-    const result = await window.api.restoreBackup();
-    if (result.success) {
-      showToast('Khôi phục thành công! Ứng dụng sẽ tải lại...', 'success');
-      setTimeout(() => location.reload(), 1500);
-    } else if (result.error !== 'Đã hủy') {
-      showToast('Lỗi: ' + result.error, 'error');
-    }
+  showConfirm('Khôi phục sẽ thay thế toàn bộ dữ liệu hiện tại. Bạn có chắc chắn?', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.db';
+    input.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const result = await window.api.restoreBackup(file);
+      if (result.success) {
+        showToast('Khôi phục thành công! Ứng dụng sẽ tải lại...', 'success');
+        setTimeout(() => location.reload(), 1500);
+      } else {
+        showToast('Lỗi: ' + result.error, 'error');
+      }
+    };
+    input.click();
   });
 }
 

@@ -5,8 +5,10 @@ const bcrypt = require('bcryptjs');
 let db;
 
 function getDbPath() {
-  const { app } = require('electron');
-  return path.join(app.getPath('userData'), 'appbanhang.db');
+  const fs = require('fs');
+  const dir = path.join(__dirname, '..', 'data');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, 'appbanhang.db');
 }
 
 function initDatabase(dbPath) {
