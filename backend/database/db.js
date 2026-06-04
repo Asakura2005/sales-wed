@@ -1,7 +1,11 @@
 require('dotenv').config();
 const { Pool } = require('pg');
+let connStr = process.env.POSTGRES_URL || process.env.DATABASE_URL || '';
+// Remove sslmode from URL to prevent it from overriding our ssl config
+connStr = connStr.replace(/([?&])sslmode=[^&]*/, '$1').replace(/[?&]$/, '');
+
 const db = new Pool({
-  connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL,
+  connectionString: connStr,
   ssl: { rejectUnauthorized: false }
 });
 const bcrypt = require('bcryptjs');
