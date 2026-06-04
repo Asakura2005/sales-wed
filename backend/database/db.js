@@ -9,6 +9,9 @@ function pgSql(text) {
 }
 
 async function query(text, params = []) {
+  if (params.length === 0) {
+    return await db.query(pgSql(text));
+  }
   return await db.query(pgSql(text), params);
 }
 
