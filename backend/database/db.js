@@ -38,8 +38,8 @@ async function run(text, ...params) {
 }
 
 async function initDatabase() {
-  await run(`
-    CREATE TABLE IF NOT EXISTS users (
+  const schemas = [
+    `CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username VARCHAR(255) UNIQUE NOT NULL,
       password_hash VARCHAR(255) NOT NULL,
@@ -48,16 +48,14 @@ async function initDatabase() {
       phone VARCHAR(50),
       active INTEGER DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS categories (
+    );`,
+    `CREATE TABLE IF NOT EXISTS categories (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       description TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS products (
+    );`,
+    `CREATE TABLE IF NOT EXISTS products (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
@@ -69,9 +67,8 @@ async function initDatabase() {
       image TEXT,
       active INTEGER DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS customers (
+    );`,
+    `CREATE TABLE IF NOT EXISTS customers (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       phone VARCHAR(50),
@@ -80,9 +77,8 @@ async function initDatabase() {
       notes TEXT,
       loyalty_points INTEGER DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS orders (
+    );`,
+    `CREATE TABLE IF NOT EXISTS orders (
       id SERIAL PRIMARY KEY,
       customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -95,9 +91,8 @@ async function initDatabase() {
       points_earned INTEGER DEFAULT 0,
       points_used INTEGER DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS order_items (
+    );`,
+    `CREATE TABLE IF NOT EXISTS order_items (
       id SERIAL PRIMARY KEY,
       order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
       product_id INTEGER NOT NULL REFERENCES products(id),
@@ -108,17 +103,15 @@ async function initDatabase() {
       note TEXT DEFAULT '',
       size_name VARCHAR(255) DEFAULT '',
       toppings TEXT DEFAULT ''
-    );
-
-    CREATE TABLE IF NOT EXISTS activity_log (
+    );`,
+    `CREATE TABLE IF NOT EXISTS activity_log (
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES users(id),
       action VARCHAR(255) NOT NULL,
       details TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS shifts (
+    );`,
+    `CREATE TABLE IF NOT EXISTS shifts (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
       start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -127,9 +120,8 @@ async function initDatabase() {
       end_amount DECIMAL(10,2) DEFAULT 0,
       status VARCHAR(50) DEFAULT 'open' CHECK(status IN ('open', 'closed')),
       note TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS shift_transactions (
+    );`,
+    `CREATE TABLE IF NOT EXISTS shift_transactions (
       id SERIAL PRIMARY KEY,
       shift_id INTEGER NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
       type VARCHAR(50) NOT NULL CHECK(type IN ('in', 'out')),
@@ -137,32 +129,33 @@ async function initDatabase() {
       reason TEXT DEFAULT '',
       note TEXT DEFAULT '',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS product_sizes (
+    );`,
+    `CREATE TABLE IF NOT EXISTS product_sizes (
       id SERIAL PRIMARY KEY,
       product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
       size_name VARCHAR(255) NOT NULL,
       price DECIMAL(10,2) NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS combos (
+    );`,
+    `CREATE TABLE IF NOT EXISTS combos (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       price DECIMAL(10,2) NOT NULL,
       description TEXT DEFAULT '',
       active INTEGER DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS combo_items (
+    );`,
+    `CREATE TABLE IF NOT EXISTS combo_items (
       id SERIAL PRIMARY KEY,
       combo_id INTEGER NOT NULL REFERENCES combos(id) ON DELETE CASCADE,
       product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
       product_name VARCHAR(255) NOT NULL,
       quantity INTEGER DEFAULT 1
-    );
-  `);
+    );`
+  ];
+
+  for (const sql of schemas) {
+    await run(sql);
+  }
 
   await seedDefaultData();
 }
