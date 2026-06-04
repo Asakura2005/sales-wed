@@ -1,0 +1,52 @@
+{
+  "name": "app-ban-hang",
+  "version": "1.0.0",
+  "description": "Ứng dụng quản lý bán hàng - POS Desktop",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder build --win",
+    "rebuild": "npx electron-rebuild -f -w better-sqlite3"
+  },
+  "author": "AppBanHang",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^9.4.3",
+    "qrcode": "^1.5.4"
+  },
+  "build": {
+    "appId": "com.appbanhang.pos",
+    "productName": "App Ban Hang",
+    "asar": false,
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "App Ban Hang"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "database/**/*",
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ],
+    "npmRebuild": false
+  }
+}
