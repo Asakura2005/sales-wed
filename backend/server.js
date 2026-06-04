@@ -260,7 +260,7 @@ apiRouter.post('/qr/generate', async (req, res) => {
 });
 
 // --- Backup ---
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ storage: multer.memoryStorage() });
 apiRouter.get('/backup/create', async (req, res) => {
   try {
     // Cannot backup Postgres easily via file download like SQLite.
