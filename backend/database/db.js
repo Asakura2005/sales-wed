@@ -1,5 +1,8 @@
 require('dotenv').config();
-const { db } = require('@vercel/postgres');
+const { Pool } = require('pg');
+const db = new Pool({
+  connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL
+});
 const bcrypt = require('bcryptjs');
 
 // Helper to convert ? to $1, $2 etc.
