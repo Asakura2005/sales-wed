@@ -506,17 +506,28 @@ async function loadPosProducts() {
   // Load and show active combos at top
   const comboResult = await window.api.getCombos(true);
   if (comboResult.success && comboResult.data.length > 0) {
-    const comboHtml = comboResult.data.map(c => {
-      const itemNames = c.items.map(it => `${it.product_name}×${it.quantity}`).join(', ');
-      return `
-        <div class="pos-product-card" onclick="addComboToCart(${c.id})" style="border:1px solid var(--primary);background:rgba(108,92,231,0.05);">
-          <div class="product-icon" style="background:rgba(108,92,231,0.2);"><i class="fas fa-gift" style="color:var(--primary);"></i></div>
-          <h4>${c.name}</h4>
-          <div style="font-size:10px;color:var(--text-secondary);margin-bottom:2px;">${itemNames}</div>
-          <div class="price">${formatCurrency(c.price)}</div>
-        </div>`;
-    }).join('');
-    grid.innerHTML = comboHtml + grid.innerHTML;
+    let combos = comboResult.data;
+    if (search) {
+      const s = removeVietnameseTones(search.toLowerCase());
+      combos = combos.filter(c => {
+        const name = removeVietnameseTones((c.name || '').toLowerCase());
+        return name.includes(s);
+      });
+    }
+
+    if (combos.length > 0) {
+      const comboHtml = combos.map(c => {
+        const itemNames = c.items.map(it => `${it.product_name}×${it.quantity}`).join(', ');
+        return `
+          <div class="pos-product-card" onclick="addComboToCart(${c.id})" style="border:1px solid var(--primary);background:rgba(108,92,231,0.05);">
+            <div class="product-icon" style="background:rgba(108,92,231,0.2);"><i class="fas fa-gift" style="color:var(--primary);"></i></div>
+            <h4>${c.name}</h4>
+            <div style="font-size:10px;color:var(--text-secondary);margin-bottom:2px;">${itemNames}</div>
+            <div class="price">${formatCurrency(c.price)}</div>
+          </div>`;
+      }).join('');
+      grid.innerHTML = comboHtml + grid.innerHTML;
+    }
   }
 }
 
@@ -553,16 +564,25 @@ function renderCustomerList(customers) {
 }
 
 function filterCustomers() {
-  const query = (document.getElementById('customer-search-input')?.value || '').toLowerCase().trim();
-  if (!query) {
+  const query = document.getElementById('customer-search-input')?.value || '';
+  const searchStr = removeVietnameseTones(query.toLowerCase().trim());
+  
+  if (!searchStr) {
     renderCustomerList(window.posAllCustomers);
     return;
   }
-  const filtered = window.posAllCustomers.filter(c => 
-    (c.name || '').toLowerCase().includes(query) || 
-    (c.phone || '').toLowerCase().includes(query) || 
-    (c.address || '').toLowerCase().includes(query)
-  );
+  
+  const filtered = window.posAllCustomers.filter(c => {
+    const name = removeVietnameseTones((c.name || '').toLowerCase());
+    const phone = (c.phone || '').toLowerCase();
+    const address = removeVietnameseTones((c.address || '').toLowerCase());
+    const email = (c.email || '').toLowerCase();
+    
+    return name.includes(searchStr) || 
+           phone.includes(searchStr) || 
+           address.includes(searchStr) || 
+           email.includes(searchStr);
+  });
   renderCustomerList(filtered);
 }
 

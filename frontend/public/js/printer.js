@@ -53,6 +53,7 @@ function generateBillHtml(order, qrDataUrl, bankLabel) {
       <img src="${qrDataUrl}" style="width:30mm;height:30mm;" />
       <div style="font-size:13px;font-weight:bold;margin-top:3px;">${formatCurrencyShort(order.final_total)}</div>
       ${bankLabel || ''}
+      <div style="font-size:10px;margin-top:3px;font-weight:bold;">Lưu ý: CK đúng mã bill, không đổi nội dung</div>
     </div>
   ` : '';
 
@@ -115,7 +116,7 @@ function generateBillHtml(order, qrDataUrl, bankLabel) {
 
   <div class="center bold" style="font-size:12px;">HÓA ĐƠN BÁN HÀNG</div>
   <div style="font-size:10px;">Mã: #${order.id} | ${formatDateTime(order.created_at)}</div>
-  <div style="font-size:10px;">NV: ${order.user_name} | KH: ${order.customer_name || 'Khách lẻ'}${order.customer_address ? ' - ' + order.customer_address : ''}</div>
+  <div style="font-size:10px;">NV: ${order.user_name} | KH: ${order.customer_name || 'Khách lẻ'}${order.customer_phone ? ' - ' + order.customer_phone : ''}${order.customer_address ? ' - ' + order.customer_address : ''}</div>
 
   <div class="line"></div>
 
