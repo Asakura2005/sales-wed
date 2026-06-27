@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { Pool } = require('pg');
-let connStr = process.env.POSTGRES_URL || process.env.DATABASE_URL || '';
+let connStr = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL || process.env.DATABASE_URL || '';
 // Remove sslmode from URL to prevent it from overriding our ssl config
 connStr = connStr.replace(/([?&])sslmode=[^&]*/, '$1').replace(/[?&]$/, '');
 
